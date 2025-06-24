@@ -1,0 +1,14 @@
+{
+  "name": "gmeet-automation",
+  "version": "1.0.0",
+  "description": "Automate joining Google Meet meetings with Puppeteer Stealth",
+  "main": "join_gmeet.js",
+  "scripts": {
+    "start": "node join_gmeet.js"
+  },
+  "dependencies": {
+    "puppeteer": "^21.3.8",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.1"
+  }
+} 

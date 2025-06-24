@@ -1,0 +1,915 @@
+================================================================================
+                    MEET TEAMS BOT - COMPLETE TECHNICAL SPECIFICATION
+                          Everything You Need to Recreate This Bot
+================================================================================
+
+TABLE OF CONTENTS
+=================
+1. OVERVIEW & ARCHITECTURE
+2. TECHNOLOGY STACK
+3. PROJECT STRUCTURE
+4. CORE COMPONENTS
+5. STATE MACHINE DESIGN
+6. MEETING JOINING LOGIC
+7. RECORDING IMPLEMENTATION
+8. CHROME EXTENSION SYSTEM
+9. CONFIGURATION SYSTEM
+10. CLOUD INTEGRATIONS
+11. DEPLOYMENT & CONTAINERIZATION
+12. CODE IMPLEMENTATION EXAMPLES
+13. TROUBLESHOOTING & DEBUGGING
+14. SECURITY CONSIDERATIONS
+15. PERFORMANCE OPTIMIZATIONS
+
+================================================================================
+1. OVERVIEW & ARCHITECTURE
+================================================================================
+
+PURPOSE:
+The Meet Teams Bot is an automated meeting recording system that can join 
+Google Meet, Microsoft Teams, and Zoom meetings to record audio/video and 
+generate transcriptions.
+
+CORE ARCHITECTURE:
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Node.js App   │────│ Chrome Extension│────│  Meeting Page   │
+│  (Control Logic)│    │ (Media Capture) │    │  (Meet/Teams)   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│    Playwright   │    │     FFmpeg      │    │   Cloud APIs    │
+│ (Browser Auto)  │    │ (Transcoding)   │    │ (S3, Grok, etc) │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+
+OPERATIONAL FLOW:
+1. Initialization: Setup browser, load extension
+2. Meeting Join: Navigate to URL, handle authentication
+3. Recording: Capture media streams, process in real-time
+4. Monitoring: Track participants, detect meeting end
+5. Processing: Transcode, upload, transcribe
+6. Cleanup: Close browser, finalize files
+
+================================================================================
+2. TECHNOLOGY STACK
+================================================================================
+
+CORE TECHNOLOGIES:
+- Node.js 14.16+ (Runtime environment)
+- TypeScript (Primary language)
+- Playwright 1.50.1 (Browser automation)
+- FFmpeg (Media processing)
+- Docker (Containerization)
+
+FRONTEND:
+- Chrome Extension (Manifest v2)
+- Webpack 4.46.0 (Bundling)
+- JavaScript/TypeScript (Extension logic)
+
+MEDIA PROCESSING:
+- FFmpeg (Audio/video transcoding)
+- MediaRecorder API (Browser recording)
+- WebSocket (Data streaming)
+
+CLOUD SERVICES:
+- AWS S3 (File storage)
+- Grok API (Transcription)
+- Various webhook endpoints
+
+KEY LIBRARIES:
+- @playwright/test: Browser automation
+- sharp: Image processing
+- winston: Logging
+- axios: HTTP requests
+- ramda: Functional utilities
+- express: Web server
+- ws: WebSocket server
+
+================================================================================
+3. PROJECT STRUCTURE
+================================================================================
+
+meet-teams-bot/
+├── src/                           # Main application source
+│   ├── main.ts                    # Entry point
+│   ├── meeting.ts                 # Meeting handle class
+│   ├── state-machine/             # Bot state management
+│   │   ├── machine.ts             # State machine controller
+│   │   ├── types.ts               # State definitions
+│   │   ├── constants.ts           # Configuration constants
+│   │   └── states/                # Individual state implementations
+│   │       ├── initialization-state.ts
+│   │       ├── waiting-room-state.ts
+│   │       ├── in-call-state.ts
+│   │       ├── recording-state.ts
+│   │       ├── paused-state.ts
+│   │       ├── cleanup-state.ts
+│   │       └── error-state.ts
+│   ├── meeting/                   # Platform-specific implementations
+│   │   ├── meet.ts                # Google Meet logic
+│   │   └── teams.ts               # Microsoft Teams logic
+│   ├── recording/                 # Media processing
+│   │   ├── Transcoder.ts          # FFmpeg wrapper
+│   │   ├── AudioExtractor.ts      # Audio processing
+│   │   └── VideoChunkProcessor.ts # Video handling
+│   ├── browser/                   # Browser automation utilities
+│   ├── utils/                     # Utility functions
+│   └── api/                       # API interfaces
+│
+├── chrome_extension/              # Browser extension
+│   ├── src/
+│   │   ├── background.ts          # Extension background script
+│   │   ├── record.ts              # Media recording logic
+│   │   ├── observeSpeakers/       # Participant monitoring
+│   │   └── shittyHtml/            # UI cleanup
+│   ├── public/
+│   │   ├── manifest.json          # Extension configuration
+│   │   └── *.html                 # Extension UI pages
+│   └── webpack/                   # Build configuration
+│
+├── Dockerfile                     # Container definition
+├── docker-compose.yml             # Multi-service setup
+├── run_bot.sh                     # Execution script
+├── bot.config.json                # Default configuration
+└── package.json                   # Dependencies
+
+================================================================================
+4. CORE COMPONENTS
+================================================================================
+
+4.1 MEETING HANDLE (src/meeting.ts)
+====================================
+- Central controller for meeting operations
+- Manages state machine lifecycle
+- Provides unified interface for all meeting providers
+
+Key Methods:
+- init(): Initialize meeting handle
+- startRecordMeeting(): Begin recording process
+- stopMeeting(): End meeting with reason
+- getState(): Current state information
+
+4.2 STATE MACHINE (src/state-machine/machine.ts)
+===============================================
+- Controls bot lifecycle through defined states
+- Handles transitions and error recovery
+- Manages global dialog observers
+
+States Flow:
+Initialization → WaitingRoom → InCall → Recording → Cleanup → Terminated
+
+4.3 MEETING PROVIDERS (src/meeting/)
+===================================
+- Platform-specific implementations
+- Handle URL parsing, joining logic, UI interactions
+- Abstract away differences between meeting platforms
+
+4.4 TRANSCODER (src/recording/Transcoder.ts)
+===========================================
+- Real-time media processing using FFmpeg
+- Handles audio/video chunking for transcription
+- Manages S3 uploads and file processing
+
+4.5 CHROME EXTENSION (chrome_extension/)
+=======================================
+- Media capture from browser
+- DOM manipulation and monitoring
+- Communication bridge to main application
+
+================================================================================
+5. STATE MACHINE DESIGN
+================================================================================
+
+5.1 STATE DEFINITIONS
+=====================
+enum MeetingStateType {
+    Initialization = 'initialization',
+    WaitingRoom = 'waitingRoom', 
+    InCall = 'inCall',
+    Recording = 'recording',
+    Paused = 'paused',
+    Resuming = 'resuming',
+    Cleanup = 'cleanup',
+    Error = 'error',
+    Terminated = 'terminated'
+}
+
+5.2 STATE RESPONSIBILITIES
+==========================
+
+INITIALIZATION STATE:
+- Set up browser context with Chrome extension
+- Configure Playwright page settings
+- Initialize path manager and directory structure
+- Validate configuration parameters
+
+WAITING ROOM STATE:
+- Parse meeting URL for platform-specific handling
+- Navigate to meeting page
+- Handle authentication dialogs ("Use without an account")
+- Enter bot name and configure microphone/camera settings
+- Click join button and wait for acceptance
+
+IN-CALL STATE:
+- Confirm successful meeting join
+- Send entry message to chat
+- Initialize recording services (FFmpeg, streaming)
+- Set up participant monitoring
+- Transition to recording when ready
+
+RECORDING STATE:
+- Start media capture via Chrome extension
+- Process audio/video chunks in real-time
+- Monitor meeting activity and participant changes
+- Handle automatic meeting end detection
+- Manage pause/resume functionality
+
+CLEANUP STATE:
+- Stop all recording processes
+- Upload files to cloud storage
+- Process transcription chunks
+- Clean up temporary files
+- Send completion webhooks
+
+5.3 STATE TRANSITIONS
+=====================
+interface StateTransition {
+    nextState: MeetingStateType
+    context: MeetingContext
+}
+
+Each state returns a StateTransition object indicating:
+- Where to go next
+- Updated context with new information
+- Any errors that occurred during execution
+
+================================================================================
+6. MEETING JOINING LOGIC
+================================================================================
+
+6.1 URL PARSING
+===============
+Google Meet: https://meet.google.com/abc-defg-hij
+Teams: https://teams.microsoft.com/l/meetup-join/...
+Zoom: https://zoom.us/j/...
+
+Parse meeting ID, password, and platform-specific parameters
+
+6.2 BROWSER SETUP
+=================
+const browserContext = await playwright.chromium.launchPersistentContext({
+    headless: false,
+    args: [
+        '--disable-web-security',
+        '--disable-blink-features=AutomationControlled',
+        '--load-extension=/path/to/chrome_extension/dist'
+    ],
+    permissions: ['camera', 'microphone']
+})
+
+6.3 AUTHENTICATION HANDLING
+===========================
+Common patterns across platforms:
+- "Use without an account" buttons
+- "Got it" dialog dismissals  
+- Permission request popups
+- Meeting quality warnings
+
+Implementation strategy:
+- Global dialog observer (every 2 seconds)
+- Multiple selector strategies for robust element finding
+- Screenshot capture for debugging failed clicks
+- Retry logic with exponential backoff
+
+6.4 JOIN BUTTON DETECTION
+=========================
+Multiple strategies for finding join buttons:
+1. Text-based selectors: span:has-text("Join now")
+2. Button elements: button:has-text("Ask to join")
+3. Aria-label attributes: button[aria-label*="Join"]
+4. Fallback JavaScript clicks for stubborn elements
+
+6.5 MEETING CONFIRMATION
+========================
+Verify successful join by checking for:
+- Participant list visibility
+- Meeting controls presence
+- URL changes indicating in-meeting state
+- Absence of waiting room indicators
+
+================================================================================
+7. RECORDING IMPLEMENTATION
+================================================================================
+
+7.1 CHROME EXTENSION MEDIA CAPTURE
+==================================
+Uses MediaRecorder API to capture:
+- Audio streams from meeting
+- Screen content (for video mode)
+- Tab audio specifically
+
+Extension communicates with main app via:
+- WebSocket connection to localhost:8080
+- Message passing for control commands
+- Chunk streaming for real-time processing
+
+7.2 FFMPEG PROCESSING
+====================
+Audio-only mode:
+ffmpeg -f webm -i pipe:0 -vn -acodec pcm_s16le -ac 1 -ar 16000 -f wav output.wav
+
+Video mode:
+ffmpeg -f webm -i pipe:0 -c:v libx264 -crf 23 -c:a aac -b:a 128k output.mp4
+
+Performance optimizations:
+- Thread limiting: -threads 2
+- Preset: ultrafast for real-time processing
+- Memory management: max 2GB allocation
+
+7.3 CHUNK PROCESSING
+===================
+const CHUNK_DURATION = 10000; // 10 seconds
+const TRANSCRIPTION_CHUNK_SIZE = 3600; // 1 hour for transcription
+
+Process flow:
+1. Extension captures 10-second WebM chunks
+2. Stream to main application via WebSocket
+3. FFmpeg processes chunks in real-time
+4. Accumulate for final output file
+5. Create separate chunks for transcription
+
+7.4 REAL-TIME MONITORING
+=======================
+Track recording health:
+- Audio packet count per interval
+- Chunk size validation
+- FFmpeg process status
+- Memory usage monitoring
+
+================================================================================
+8. CHROME EXTENSION SYSTEM
+================================================================================
+
+8.1 MANIFEST CONFIGURATION
+==========================
+{
+    "manifest_version": 2,
+    "name": "meeting-baas",
+    "permissions": [
+        "*://*/*",
+        "activeTab", 
+        "tabs",
+        "tabCapture",
+        "storage"
+    ],
+    "content_scripts": [{
+        "matches": ["<all_urls>"],
+        "js": ["./js/vendor.js"]
+    }],
+    "background": {
+        "scripts": ["./js/vendor.js", "./js/background.js"],
+        "persistent": true
+    }
+}
+
+8.2 BACKGROUND SCRIPT (background.ts)
+=====================================
+Main extension controller:
+- Exposes global functions to main application
+- Manages MediaRecorder lifecycle
+- Handles tab audio capture
+- Coordinates with content scripts
+
+Key functions:
+- startRecording(): Initialize media capture
+- stopMediaRecorder(): End recording
+- start_speakers_observer(): Monitor participants
+- remove_shitty_html(): Clean up UI elements
+
+8.3 CONTENT SCRIPTS
+==================
+observeSpeakers.js:
+- MutationObserver for DOM changes
+- Detects participant list modifications
+- Identifies speaking indicators
+- Reports participant count and activity
+
+shittyHtml.js:
+- Removes distracting UI elements
+- Hides notifications and popups
+- Optimizes meeting view for recording
+
+8.4 MEDIA RECORDING (record.ts)
+==============================
+MediaRecorder configuration:
+{
+    mimeType: 'video/webm;codecs=vp8,opus',
+    videoBitsPerSecond: 1000000,
+    audioBitsPerSecond: 128000
+}
+
+Capture strategies:
+- Tab audio: chrome.tabCapture.capture()
+- Screen recording: getDisplayMedia()
+- Audio-only: getUserMedia() with audio constraints
+
+================================================================================
+9. CONFIGURATION SYSTEM
+================================================================================
+
+9.1 CONFIGURATION SCHEMA
+========================
+{
+    "meeting_url": "https://meet.google.com/abc-defg-hij",
+    "bot_name": "Recording Bot",
+    "recording_mode": "audio_only | speaker_view | gallery_view",
+    "speech_to_text_provider": "Grok | None",
+    "speech_to_text_api_key": "your-api-key",
+    "grok_model": "whisper-large-v3",
+    "automatic_leave": {
+        "waiting_room_timeout": 60,
+        "noone_joined_timeout": 60
+    },
+    "enter_message": "Recording bot has joined the meeting",
+    "bot_uuid": "auto-generated-uuid",
+    "secret": "your-secret-key",
+    "bots_webhook_url": "https://your-webhook-endpoint.com"
+}
+
+9.2 PARAMETER OVERRIDE SYSTEM
+=============================
+Command line overrides using jq:
+./run_bot.sh run meeting_url=https://meet.google.com/new-id bot_name="Custom Bot"
+
+Implementation:
+apply_overrides() {
+    local json="$1"
+    shift
+    local overrides=("$@")
+    for kv in "${overrides[@]}"; do
+        if [[ "$kv" =~ ^([a-zA-Z0-9_]+)=(.*)$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            value="${BASH_REMATCH[2]}"
+            json=$(echo "$json" | jq --arg key "$key" --arg value "$value" '.[$key] = $value')
+        fi
+    done
+    echo "$json"
+}
+
+9.3 ENVIRONMENT VARIABLES
+=========================
+NODE_ENV=production
+SERVERLESS=true
+DISPLAY=:99 (for virtual display)
+AWS_S3_VIDEO_BUCKET=your-video-bucket
+AWS_S3_TEMPORARY_AUDIO_BUCKET=your-audio-bucket
+TRANSCRIPTION_AUDIO_BUCKET=your-transcription-bucket
+
+================================================================================
+10. CLOUD INTEGRATIONS
+================================================================================
+
+10.1 AWS S3 STORAGE
+===================
+File organization:
+s3://bucket-name/
+├── {bot-uuid}/
+│   ├── output.wav (audio recording)
+│   ├── output.mp4 (video recording) 
+│   ├── chunks/ (transcription chunks)
+│   └── metadata.json (session info)
+
+Upload strategy:
+- Parallel uploads for chunks
+- Retry logic with exponential backoff
+- Multipart uploads for large files
+- Metadata tagging for organization
+
+10.2 GROK TRANSCRIPTION API
+===========================
+Configuration:
+{
+    "apiKey": "your-grok-api-key",
+    "model": "whisper-large-v3",
+    "responseFormat": "verbose_json",
+    "temperature": 0
+}
+
+API endpoint: https://api.groq.com/openai/v1/audio/transcriptions
+
+Request format:
+POST /v1/audio/transcriptions
+Content-Type: multipart/form-data
+{
+    "file": audio_chunk.wav,
+    "model": "whisper-large-v3",
+    "response_format": "verbose_json"
+}
+
+10.3 WEBHOOK INTEGRATION
+=======================
+Event types:
+- meeting_started: Bot joined successfully
+- recording_started: Recording began
+- recording_ended: Recording completed
+- error_occurred: Error during process
+
+Webhook payload:
+{
+    "event": "recording_ended",
+    "bot_uuid": "session-identifier",
+    "meeting_url": "original-meeting-url",
+    "duration": 1847, // seconds
+    "file_paths": {
+        "audio": "s3://bucket/path/output.wav",
+        "video": "s3://bucket/path/output.mp4"
+    },
+    "participants": ["user1", "user2"],
+    "timestamp": "2025-06-20T13:48:30Z"
+}
+
+================================================================================
+11. DEPLOYMENT & CONTAINERIZATION
+================================================================================
+
+11.1 DOCKERFILE STRUCTURE
+=========================
+FROM node:18-bullseye
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    xvfb x11vnc fluxbox \
+    ffmpeg \
+    curl unzip
+
+# Install AWS CLI v2
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" \
+    && unzip awscliv2.zip \
+    && ./aws/install
+
+# Install Node.js dependencies
+COPY package*.json ./
+RUN npm ci
+
+# Install Playwright browsers
+RUN npx playwright install --with-deps chromium
+
+# Build application and extension
+COPY . .
+RUN npm run build && npm run build --prefix chrome_extension
+
+# Create startup script for virtual display
+ENV SERVERLESS=true
+ENV NODE_ENV=production
+ENV DISPLAY=:99
+
+ENTRYPOINT ["/start.sh"]
+
+11.2 VIRTUAL DISPLAY SETUP
+==========================
+#!/bin/bash
+export DISPLAY=:99
+Xvfb :99 -screen 0 1280x720x24 -ac +extension GLX +render -noreset &
+XVFB_PID=$!
+sleep 2
+cd /app/
+node build/src/main.js
+kill $XVFB_PID 2>/dev/null || true
+
+11.3 DOCKER COMPOSE CONFIGURATION
+=================================
+version: '3.8'
+services:
+  meet-bot:
+    build: .
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
+    volumes:
+      - ./recordings:/app/data
+    stdin_open: true
+    tty: true
+
+11.4 KUBERNETES DEPLOYMENT
+==========================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meet-teams-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: meet-teams-bot
+  template:
+    metadata:
+      labels:
+        app: meet-teams-bot
+    spec:
+      containers:
+      - name: bot
+        image: meet-teams-bot:latest
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi" 
+            cpu: "2000m"
+        env:
+        - name: AWS_REGION
+          value: "us-east-1"
+
+================================================================================
+12. CODE IMPLEMENTATION EXAMPLES
+================================================================================
+
+12.1 STATE MACHINE IMPLEMENTATION
+=================================
+export class MeetingStateMachine {
+    private currentState: MeetingStateType
+    public context: MeetingContext
+    
+    async start(): Promise<void> {
+        while (this.currentState !== MeetingStateType.Terminated) {
+            const state = getStateInstance(this.currentState, this.context)
+            const transition: StateTransition = await state.execute()
+            
+            this.currentState = transition.nextState
+            this.context = transition.context
+        }
+    }
+    
+    async requestStop(reason: RecordingEndReason): Promise<void> {
+        this.context.endReason = reason
+        this.forceStop = true
+    }
+}
+
+12.2 MEETING PROVIDER INTERFACE
+==============================
+interface MeetingProviderInterface {
+    parseMeetingUrl(url: string): Promise<{meetingId: string, password?: string}>
+    getMeetingLink(id: string, password: string, role: number, botName: string): string
+    openMeetingPage(context: BrowserContext, link: string): Promise<Page>
+    joinMeeting(page: Page, cancelCheck: () => boolean, params: MeetingParams): Promise<void>
+    findEndMeeting(params: MeetingParams, page: Page): Promise<boolean>
+    closeMeeting(page: Page): Promise<void>
+}
+
+12.3 CHROME EXTENSION COMMUNICATION
+===================================
+// Background script
+export async function startRecording(
+    serverLocation: string,
+    chunkDuration: number
+): Promise<number> {
+    ApiService.init(serverLocation)
+    await record.initMediaRecorder()
+    return await record.startRecording(chunkDuration)
+}
+
+// Main application
+await page.evaluate(async (params) => {
+    return window.startRecording(
+        params.serverLocation,
+        params.chunkDuration
+    )
+}, {
+    serverLocation: 'http://localhost:8080/',
+    chunkDuration: 10000
+})
+
+12.4 FFMPEG INTEGRATION
+=======================
+class Transcoder extends EventEmitter {
+    private async startFFmpeg(): Promise<void> {
+        const args = [
+            '-f', 'webm',
+            '-i', 'pipe:0',
+            '-vn',                    // No video for audio-only
+            '-acodec', 'pcm_s16le',   // 16-bit PCM
+            '-ac', '1',               // Mono
+            '-ar', '16000',           // 16kHz sample rate
+            '-f', 'wav',
+            '-y',                     // Overwrite output
+            this.config.outputPath
+        ]
+        
+        this.ffmpegProcess = spawn('ffmpeg', args)
+        this.setupFFmpegListeners()
+    }
+    
+    async uploadChunk(chunk: Buffer): Promise<void> {
+        if (this.ffmpegProcess?.stdin?.writable) {
+            this.ffmpegProcess.stdin.write(chunk)
+        }
+    }
+}
+
+12.5 PARTICIPANT MONITORING
+===========================
+// observeSpeakers.js content script
+function setupSpeakerObserver() {
+    const observer = new MutationObserver((mutations) => {
+        const participants = document.querySelectorAll('[data-participant-id]')
+        const speakingIndicators = document.querySelectorAll('[data-is-speaking="true"]')
+        
+        window.postMessage({
+            type: 'PARTICIPANT_UPDATE',
+            data: {
+                count: participants.length,
+                speaking: Array.from(speakingIndicators).map(el => el.dataset.participantId)
+            }
+        }, '*')
+    })
+    
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['data-is-speaking']
+    })
+}
+
+================================================================================
+13. TROUBLESHOOTING & DEBUGGING
+================================================================================
+
+13.1 COMMON ISSUES
+==================
+
+ISSUE: "jq: command not found"
+SOLUTION: Install jq package manager
+- Ubuntu/Debian: apt-get install jq
+- CentOS/RHEL: yum install jq  
+- macOS: brew install jq
+- Arch Linux: pacman -S jq
+
+ISSUE: "Permission denied" on recordings folder
+SOLUTION: Docker creates files as root
+sudo chown -R $USER:$USER recordings/
+# Or use Docker user mapping: --user $(id -u):$(id -g)
+
+ISSUE: "InvalidMeetingUrl" error
+SOLUTION: Ensure URL includes https:// protocol
+WRONG: meet.google.com/abc-defg-hij
+RIGHT: https://meet.google.com/abc-defg-hij
+
+ISSUE: Chrome extension not loading
+SOLUTION: Check extension build and manifest
+cd chrome_extension && npm run build
+ls -la dist/js/ # Verify files exist
+
+ISSUE: FFmpeg not found in container
+SOLUTION: Ensure FFmpeg installation in Dockerfile
+RUN apt-get update && apt-get install -y ffmpeg
+
+13.2 DEBUG LOGGING
+==================
+Enable detailed logging:
+export DEBUG="meet-teams-bot:*"
+export LOG_LEVEL="debug"
+
+Log locations:
+- Console: Real-time operation logs
+- recordings/{bot-uuid}/logs.log: Detailed session logs
+- recordings/{bot-uuid}/sound_levels.log: Audio activity
+- Screenshots: Visual debugging for failed UI interactions
+
+13.3 TESTING STRATEGIES
+=======================
+
+Unit Testing:
+- State machine transitions
+- URL parsing logic
+- Configuration validation
+- Media processing functions
+
+Integration Testing:
+- End-to-end meeting joining
+- Recording quality validation
+- File upload verification
+- Webhook delivery confirmation
+
+Load Testing:
+- Multiple concurrent bots
+- Memory usage monitoring
+- CPU utilization tracking
+- Network bandwidth analysis
+
+================================================================================
+14. SECURITY CONSIDERATIONS
+================================================================================
+
+14.1 DATA PROTECTION
+====================
+- All recordings processed locally before cloud upload
+- Configurable retention policies for recordings
+- Encryption in transit (HTTPS, WSS)
+- Encryption at rest (S3 server-side encryption)
+
+14.2 ACCESS CONTROL
+==================
+- API key rotation for transcription services
+- IAM roles for AWS S3 access
+- Webhook signature verification
+- Bot session isolation (UUID-based)
+
+14.3 BROWSER SECURITY
+=====================
+- Minimal extension permissions
+- User agent spoofing to avoid detection
+- Secure communication channels only
+- No persistent data storage in browser
+
+14.4 PRIVACY COMPLIANCE
+======================
+- Clear consent mechanisms for recording
+- Configurable data retention periods
+- GDPR-compliant data handling
+- Audit trails for all operations
+
+================================================================================
+15. PERFORMANCE OPTIMIZATIONS
+================================================================================
+
+15.1 MEMORY MANAGEMENT
+======================
+- FFmpeg memory limits: --max_memory 2048MB
+- Node.js heap limits: --max-old-space-size=2048
+- Chunk-based processing to avoid large memory allocations
+- Garbage collection optimization for long-running processes
+
+15.2 CPU OPTIMIZATION
+=====================
+- FFmpeg thread limiting: -threads 2
+- Async processing for non-blocking operations
+- Worker pools for CPU-intensive tasks
+- Process priority tuning for real-time performance
+
+15.3 NETWORK OPTIMIZATION
+=========================
+- Parallel S3 uploads for chunks
+- Connection pooling for API requests
+- Compression for webhook payloads
+- CDN usage for static assets
+
+15.4 STORAGE OPTIMIZATION
+=========================
+- Optimal audio formats for transcription (16kHz mono)
+- Video compression settings (CRF 23)
+- Temporary file cleanup
+- S3 lifecycle policies for cost management
+
+================================================================================
+IMPLEMENTATION CHECKLIST
+================================================================================
+
+□ Set up development environment (Node.js, Docker, FFmpeg)
+□ Create project structure with TypeScript configuration
+□ Implement state machine with all required states
+□ Build Chrome extension with media capture capabilities
+□ Integrate Playwright for browser automation
+□ Implement meeting provider interfaces (Meet, Teams)
+□ Create FFmpeg-based transcoding system
+□ Set up cloud integrations (S3, transcription APIs)
+□ Build configuration and override system
+□ Implement logging and debugging infrastructure
+□ Create Docker containerization
+□ Add error handling and recovery mechanisms
+□ Implement participant monitoring and activity detection
+□ Set up webhook system for notifications
+□ Add security measures and access controls
+□ Optimize for performance and resource usage
+□ Create comprehensive test suite
+□ Document deployment procedures
+□ Implement monitoring and alerting
+
+================================================================================
+FINAL NOTES
+================================================================================
+
+This specification contains everything needed to recreate the Meet Teams Bot
+from scratch. The system is designed to be:
+
+- SCALABLE: Handle multiple concurrent meetings
+- RELIABLE: Robust error handling and recovery
+- FLEXIBLE: Support multiple meeting platforms
+- SECURE: Protect sensitive meeting data
+- PERFORMANT: Real-time processing capabilities
+
+Key success factors:
+1. Proper state machine design for reliability
+2. Robust browser automation for different meeting UIs
+3. Efficient media processing pipeline
+4. Comprehensive error handling and logging
+5. Secure cloud integrations
+
+For questions or clarifications, refer to the source code examples
+and implementation patterns described throughout this document.
+
+================================================================================
+END OF SPECIFICATION
+================================================================================ 

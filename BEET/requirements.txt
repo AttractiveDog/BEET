@@ -1,0 +1,13 @@
+PyQt5>=5.15.0
+pulsectl>=22.3.2
+pyaudio>=0.2.11
+numpy>=1.21.0
+pyttsx3>=2.90
+gtts>=2.2.4
+pygame>=2.1.0
+groq>=0.3.0
+sounddevice>=0.4.5
+scipy>=1.7.0
+python-dotenv>=0.19.0
+selenium>=4.0.0
+playwright>=1.40.0 
